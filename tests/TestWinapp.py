@@ -185,12 +185,8 @@ class WinappTestCase(common.BleachbitTestCase):
 
     def ini2cleaner(self, body, do_next=True):
         """Write a minimal Winapp2.ini"""
-        ini = open(self.ini_fn, 'w')
-        ini.write('[someapp]\n')
-        ini.write('LangSecRef=3021\n')
-        ini.write(body)
-        ini.write('\n')
-        ini.close()
+        with open(self.ini_fn, 'w') as ini:
+            ini.write('[someapp]\nLangSecRef=3021\n' + body + '\n')
         self.assertExists(self.ini_fn)
         if do_next:
             return next(Winapp(self.ini_fn).get_cleaners())
@@ -325,15 +321,19 @@ class WinappTestCase(common.BleachbitTestCase):
 
         # reuse this path to store a winapp2.ini file in
         (ini_h, self.ini_fn) = tempfile.mkstemp(
-            suffix='.ini', prefix='winapp2')
+            suffix='.ini', prefix='winapp2', dir=self.tempdir)
         os.close(ini_h)
 
-        # tests
-        # each tuple
-        # 0 = body of winapp2.ini
-        # 1 = .\deleteme.log should exist
-        # 2 = .\deleteme.bak should exist
-        # 3 = sub\deleteme.log should exist
+        # Each tuple contains:
+        #   [0] = Body of winapp2.ini configuration
+        #   [1] = Whether .\deleteme.log should exist after cleaning (True=exists)
+        #   [2] = Whether .\deleteme.bak should exist after cleaning (True=exists)
+        #   [3] = Whether sub\deleteme.log should exist after cleaning (True=exists)
+        #
+        # Path notation:
+        #   %(d)s     - Literal test directory path without a trailing backslash
+        #   %(d)s\\   - Literal directory with a trailing backslash
+        #   %%bbtestdir%% - Literal environment variable that resolves to same test directory
 
         tests = (
             # delete everything in single directory (no children) without
@@ -353,12 +353,13 @@ class WinappTestCase(common.BleachbitTestCase):
             # exclude log delimited by pipe
             ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=FILE|%(d)s|deleteme.log',
              True, False, True),
-            (r'FileKey1=%(d)s|deleteme.*\nExcludeKey1=FILE|%(d)s\|deleteme.log',
+            # trailing backslash should work the same as without
+            ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=FILE|%(d)s\\|deleteme.log',
              True, False, True),
             # delete / exclude patterns with different complexity
             ('FileKey1=%(d)s|*eteme.*\nExcludeKey1=FILE|%(d)s|deleteme.log',
              True, False, True),
-            (r'FileKey1=%(d)s|*eteme.*\nExcludeKey1=FILE|%(d)s\|deleteme.log',
+            ('FileKey1=%(d)s|*eteme.*\nExcludeKey1=FILE|%(d)s\\|deleteme.log',
              True, False, True),
             ('FileKey1=%(d)s|*ete*.*\nExcludeKey1=PATH|%(d)s|*ete*.lo?',
              True, False, True),
@@ -375,7 +376,7 @@ class WinappTestCase(common.BleachbitTestCase):
             # exclude everything in folder
             ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%(d)s|*.*',
              True, True, True),
-            (r'FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%(d)s\|*.*',
+            ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%(d)s\\|*.*',
              True, True, True),
             ('FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|%(d)s|*.*',
              True, True, True),
@@ -388,7 +389,7 @@ class WinappTestCase(common.BleachbitTestCase):
             ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%%bbtestdir%%|*.*',
              True, True, True),
             # exclude sub-folder
-            (r'FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%(d)s\sub',
+            ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%(d)s\\sub',
              False, False, True),
             # exclude multiple file types that do not exist
             ('FileKey1=%(d)s|deleteme.*\nExcludeKey1=PATH|%(d)s|*.exe;*.dll',
@@ -399,16 +400,16 @@ class WinappTestCase(common.BleachbitTestCase):
             ('FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|%(d)s|*.bak;*.log',
              True, True, True),
             # multiple ExcludeKey, neither of which should do anything
-            ('FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|c:\\doesnotexist|*.*\nExcludeKey2=PATH|c:\\alsodoesnotexist|*.*',
+            ('FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|c:\\doesnotexist|*.*\nExcludeKey2=PATH|c:\\alsodoesnotexist\\|*.*',
              False, False, False),
             # multiple ExcludeKey, the first should work
-            (r'FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|%(d)s|*.log\nExcludeKey2=PATH|c:\alsodoesnotexist\|*.*',
+            ('FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|%(d)s|*.log\nExcludeKey2=PATH|c:\\alsodoesnotexist\\|*.*',
              True, False, True),
             # multiple ExcludeKey, both should work
             ('FileKey1=%(d)s|deleteme.*|RECURSE\nExcludeKey1=PATH|%(d)s|*.log\nExcludeKey2=PATH|%(d)s|*.bak',
              True, True, True),
             # glob should exclude the directory called 'sub'
-            (r'FileKey1=%(d)s|*.*\nExcludeKey1=PATH|%(d)s\s*',
+            ('FileKey1=%(d)s|*.*\nExcludeKey1=PATH|%(d)s\\s*',
              False, False, True),
         )
 
@@ -451,8 +452,10 @@ class WinappTestCase(common.BleachbitTestCase):
         # clean their targets.
 
         filename = os.path.join('C:\\', 'deleteme.txt')
-        open(filename, 'w').close()
-        self.assertExists(filename)
+        try:
+            common.touch_file(filename)
+        except PermissionError:
+            self.skipTest('Permission denied: run as administrator')
 
         with mock.patch('os.path.lexists') as mock_lexists:
             cleaner = self.ini2cleaner('FileKey1=%SystemDrive%|deleteme.txt')
